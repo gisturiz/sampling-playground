@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pick the next word: temperature, top-k and top-p, explained by turning knobs</title>
+<meta name="description" content="An interactive look at how temperature, top-k and top-p shape which token a language model picks next.">
+<!-- Link preview (LinkedIn, X, Slack). preview.png should be 1200x627 in the repo root. -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Pick the next word: temperature, top-k and top-p, explained by turning knobs">
+<meta property="og:description" content="An interactive explainer for temperature, top-k and top-p. Move three sliders and watch how a language model's odds on the next word change, which words get cut, and what gets sampled.">
+<meta property="og:url" content="https://gisturiz.github.io/sampling-playground/">
+<meta property="og:image" content="https://gisturiz.github.io/sampling-playground/preview.jpg">
+<meta property="og:image:secure_url" content="https://gisturiz.github.io/sampling-playground/preview.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="627">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Pick the next word: temperature, top-k and top-p">
+<meta name="twitter:description" content="An interactive explainer for temperature, top-k and top-p. Move three sliders and watch how a language model's odds on the next word change, which words get cut, and what gets sampled.">
+<meta name="twitter:image" content="https://gisturiz.github.io/sampling-playground/preview.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EEF1F5;
+    --panel:#FFFFFF;
+    --ink:#1B2430;
+    --ink-2:#5B6572;
+    --line:#D6DCE4;
+    --keep:#2B4EE6;
+    --keep-soft:#DCE3FB;
+    --cut:#B7BEC8;
+    --cut-soft:#E7EAEF;
+    --pick:#0E9F6E;
+    --radius:10px;
+    --font-display:"Bricolage Grotesque",system-ui,sans-serif;
+    --font-body:"IBM Plex Sans",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.5}
+  a{color:var(--keep)}
+  :focus-visible{outline:3px solid var(--keep);outline-offset:3px;border-radius:4px}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 24px 64px}
+
+  /* ---------- hero: the prompt itself ---------- */
+  header{margin-bottom:20px}
+  @media (min-width:821px){header{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:end} .prompt{margin-bottom:0}}
+  .prompt{
+    font-family:var(--font-display);font-weight:700;
+    font-size:clamp(26px,4vw,44px);line-height:1.05;letter-spacing:-0.02em;
+    margin:0 0 12px;max-width:24ch;
+  }
+  .prompt .slot{
+    display:inline-block;min-width:4.2ch;padding:0 .18em;
+    border-bottom:.08em solid var(--keep);color:var(--keep);
+    transition:color .15s;
+  }
+  .prompt .slot.picked{color:var(--pick);border-color:var(--pick)}
+  .lede{max-width:62ch;margin:0;color:var(--ink-2);font-size:16px}
+
+  /* ---------- layout ---------- */
+  .grid{display:grid;grid-template-columns:320px 1fr;gap:24px;align-items:start}
+  @media (min-width:821px){.grid aside{position:sticky;top:16px}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+
+  /* ---------- controls ---------- */
+  .control{padding:14px 0;border-top:1px solid var(--line)}
+  .control:first-child{padding-top:0;border-top:0}
+  .control-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:6px}
+  .control-head label{font-family:var(--font-display);font-weight:700;font-size:18px;letter-spacing:-0.01em}
+  .control-head output{font-variant-numeric:tabular-nums;font-weight:600;font-size:18px;color:var(--keep)}
+  .control p{margin:6px 0 0;font-size:13.5px;color:var(--ink-2)}
+  input[type=range]{width:100%;margin:8px 0 0;accent-color:var(--keep);cursor:pointer}
+  .ticks{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2);margin-top:2px;font-variant-numeric:tabular-nums}
+
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}
+  button{
+    font:inherit;font-weight:600;border-radius:8px;padding:10px 16px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--ink)
+  }
+  button.primary{background:var(--keep);border-color:var(--keep);color:#fff}
+  button.primary:hover{background:#2140C4}
+  button:hover{border-color:var(--ink-2)}
+
+  /* ---------- chart ---------- */
+  .chart-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  .chart-head h2{font-family:var(--font-display);font-weight:700;font-size:22px;margin:0;letter-spacing:-0.01em}
+  .stats{display:flex;gap:18px;font-size:14px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+  .stats b{color:var(--ink);font-weight:600}
+
+  .cols{display:grid;grid-template-columns:34px 110px 1fr 72px 72px;gap:0 10px;align-items:center;
+        font-size:12px;color:var(--ink-2);padding:0 0 8px;border-bottom:1px solid var(--line);margin-bottom:6px}
+  .cols span:nth-child(4),.cols span:nth-child(5){text-align:right}
+  @media (max-width:520px){.cols,.row{grid-template-columns:28px 84px 1fr 58px 58px}}
+
+  .row{display:grid;grid-template-columns:34px 110px 1fr 72px 72px;gap:0 10px;align-items:center;padding:3px 0;transition:opacity .15s}
+  .row .rank{font-variant-numeric:tabular-nums;color:var(--ink-2);font-size:13px}
+  .row .tok{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .track{height:16px;background:var(--cut-soft);border-radius:4px;position:relative;overflow:hidden}
+  .row .bar{position:absolute;inset:0 auto 0 0;background:var(--keep);border-radius:4px;transition:width .25s cubic-bezier(.2,.7,.2,1)}
+  .row .num,.row .cum{text-align:right;font-variant-numeric:tabular-nums;font-size:14px}
+  .row .cum{color:var(--ink-2)}
+
+  .row.cut .tok{color:var(--cut)}
+  .row.cut .bar{
+    background:repeating-linear-gradient(135deg,var(--cut) 0 4px,transparent 4px 8px);
+    opacity:.9
+  }
+  .row.cut .num,.row.cut .cum{color:var(--cut)}
+  .row.cut .rank{color:var(--cut)}
+  .row.picked .tok{color:var(--pick);font-weight:600}
+  .row.picked .bar{background:var(--pick)}
+  .row.picked .num{color:var(--pick);font-weight:600}
+
+  .cutline{grid-column:1 / -1;height:0;border-top:2px dashed var(--keep);margin:4px 0;position:relative}
+  .cutline::after{content:attr(data-label);position:absolute;right:0;top:-10px;background:var(--panel);padding:0 6px;font-size:12px;color:var(--keep);font-weight:600}
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:16px;font-size:13px;color:var(--ink-2)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:14px;height:14px;border-radius:3px;display:inline-block}
+  .sw.keep{background:var(--keep)}
+  .sw.cut{background:repeating-linear-gradient(135deg,var(--cut) 0 3px,transparent 3px 6px);background-color:var(--cut-soft)}
+  .sw.pick{background:var(--pick)}
+
+  /* ---------- explanation ---------- */
+  .notes{margin-top:36px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  @media (max-width:820px){.notes{grid-template-columns:1fr}}
+  .notes h3{font-family:var(--font-display);font-size:19px;margin:0 0 6px;letter-spacing:-0.01em}
+  .notes p{margin:0;font-size:15px;color:var(--ink-2)}
+  .notes code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:var(--cut-soft);padding:1px 5px;border-radius:4px;color:var(--ink)}
+
+  footer{margin-top:40px;font-size:13px;color:var(--ink-2);max-width:70ch}
+
+  .explain-toggle{display:none}
+  .cols .short{display:none}
+
+  @media (max-width:820px){
+    .wrap{padding:20px 16px 48px}
+    .grid{display:flex;flex-direction:column;gap:16px}
+    .grid aside{
+      order:2;position:sticky;bottom:0;z-index:5;
+      margin:0 -16px;border-radius:14px 14px 0 0;border-bottom:0;
+      padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+      box-shadow:0 -10px 28px rgba(27,36,48,.14);
+    }
+    .control{padding:6px 0}
+    .control-head{margin-bottom:0}
+    .control-head label{font-size:15px}
+    .control-head output{font-size:15px}
+    .control p,.ticks{display:none}
+    .grid aside.explain .control p{display:block;font-size:13px}
+    input[type=range]{margin:2px 0 0}
+    .actions{margin-top:8px;gap:8px}
+    button{padding:8px 12px;font-size:14px}
+    .explain-toggle{display:inline-block;background:none;border:0;color:var(--keep);padding:8px 0;font-weight:500;margin-left:auto}
+    .cols,.row{grid-template-columns:22px 98px 1fr 50px 50px;gap:0 6px}
+    .row .num,.row .cum{font-size:13px}
+    .stats{gap:12px;font-size:13px}
+    .cols .long{display:none}
+    .cols .short{display:inline}
+    .explain-toggle{flex-basis:100%;text-align:left;padding:4px 0 0}
+  }
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1 class="prompt">For dinner tonight I'm making <span class="slot" id="slot">…</span></h1>
+    <p class="lede">Every time a language model writes a word, it has a ranked list of candidates and rolls the dice. Temperature, top-k and top-p change the odds on that roll. Move the sliders and see what happens to the list.</p>
+  </header>
+
+  <div class="grid">
+    <aside class="panel" aria-label="Sampling controls">
+      <div class="control">
+        <div class="control-head">
+          <label for="temp">Temperature</label>
+          <output id="tempOut" for="temp">1.00</output>
+        </div>
+        <input type="range" id="temp" min="0" max="2" step="0.05" value="1">
+        <div class="ticks"><span>0 · deterministic</span><span>1</span><span>2 · wild</span></div>
+        <p>Divides every score before they're turned into probabilities. Low values sharpen the peak; high values flatten it and give unlikely words a real chance.</p>
+      </div>
+
+      <div class="control">
+        <div class="control-head">
+          <label for="topk">Top-k</label>
+          <output id="topkOut" for="topk">All</output>
+        </div>
+        <input type="range" id="topk" min="1" max="16" step="1" value="16">
+        <div class="ticks"><span>1</span><span>8</span><span>16 · off</span></div>
+        <p>Keep only the k highest-ranked words, whatever their probabilities. A blunt, predictable cutoff.</p>
+      </div>
+
+      <div class="control">
+        <div class="control-head">
+          <label for="topp">Top-p (nucleus)</label>
+          <output id="toppOut" for="topp">1.00</output>
+        </div>
+        <input type="range" id="topp" min="0.05" max="1" step="0.01" value="1">
+        <div class="ticks"><span>0.05</span><span>0.5</span><span>1 · off</span></div>
+        <p>Walk down the list, adding up probability. Stop once the running total reaches p. Keeps few words when the model is confident, many when it isn't.</p>
+      </div>
+
+      <div class="actions">
+        <button class="primary" id="sample" type="button">Sample a word</button>
+        <button id="reset" type="button">Reset</button>
+        <button class="explain-toggle" id="explain" type="button" aria-expanded="false">What do these do?</button>
+      </div>
+    </aside>
+
+    <section class="panel" aria-live="polite">
+      <div class="chart-head">
+        <h2>Candidate next words</h2>
+        <div class="stats">
+          <span>In play <b id="statKeep">16</b> / 16</span>
+          <span>Top word <b id="statTop">—</b></span>
+        </div>
+      </div>
+      <div class="cols" aria-hidden="true">
+        <span>#</span><span>word</span><span><span class="long">probability after temperature</span><span class="short">probability</span></span><span>chance</span><span>Σ p</span>
+      </div>
+      <div id="rows" role="list"></div>
+      <div class="legend">
+        <span><i class="sw keep"></i>Eligible to be sampled</span>
+        <span><i class="sw cut"></i>Removed by top-k or top-p</span>
+        <span><i class="sw pick"></i>Sampled this round</span>
+      </div>
+    </section>
+  </div>
+
+  <section class="notes">
+    <div>
+      <h3>Temperature is a dial for surprise, not knowledge</h3>
+      <p>Turning it up makes the model braver about picking words it already ranked low. It doesn't give the model new words to pick from. The raw scores (logits) never change; temperature only rescales them: <code>softmax(logit / T)</code>. At <code>T → 0</code> the top word wins every time. Around 1 you get the model's own distribution. Above 1 the tail fattens. Output gets more surprising, and past about 1.5 it usually stops making sense.</p>
+    </div>
+    <div>
+      <h3>Top-k vs top-p</h3>
+      <p>Top-k ignores shape: set k to 5 and it keeps exactly 5 words, whether the model is sure or guessing. Top-p adapts: a confident model at <code>p = 0.9</code> might keep 2 words; an uncertain one, 12. Set temperature high and top-p tight and you get variety without nonsense.</p>
+    </div>
+    <div>
+      <h3>How they combine here</h3>
+      <p>Order in this demo: temperature → top-k → top-p → renormalise the survivors → sample. Real inference stacks vary the order and add other filters (min-p, repetition penalties), but the intuition carries over.</p>
+    </div>
+  </section>
+
+  <footer>Made to illustrate an idea, not a specific model. The candidate scores are hand-picked to look like a plausible output distribution. Real models sample tokens, which are often fragments of words rather than whole ones; the page says "word" for readability.</footer>
+</div>
+
+<script>
+(() => {
+  // Hand-written logits: shaped like a real model: a few strong candidates, a long tail.
+  const CANDIDATES = [
+    ["pasta",       4.6],
+    ["tacos",       3.9],
+    ["curry",       3.5],
+    ["pizza",       3.3],
+    ["salmon",      2.9],
+    ["risotto",     2.6],
+    ["soup",        2.4],
+    ["stir-fry",    2.1],
+    ["dumplings",   1.8],
+    ["lasagna",     1.5],
+    ["ramen",       1.2],
+    ["a salad",     0.9],
+    ["paella",      0.5],
+    ["nothing",     0.1],
+    ["pancakes",   -0.4],
+    ["takeout",    -1.0],
+  ];
+  const N = CANDIDATES.length;
+
+  const $ = id => document.getElementById(id);
+  const tempEl = $("temp"), kEl = $("topk"), pEl = $("topp");
+  const rowsEl = $("rows"), slotEl = $("slot");
+  let picked = null;
+
+  function compute(){
+    const T = parseFloat(tempEl.value);
+    const k = parseInt(kEl.value, 10);
+    const p = parseFloat(pEl.value);
+
+    // temperature → softmax (T=0 handled as argmax)
+    let probs;
+    if (T < 1e-3){
+      const maxL = Math.max(...CANDIDATES.map(c => c[1]));
+      probs = CANDIDATES.map(c => c[1] === maxL ? 1 : 0);
+    } else {
+      const scaled = CANDIDATES.map(c => c[1] / T);
+      const m = Math.max(...scaled);
+      const ex = scaled.map(s => Math.exp(s - m));
+      const z = ex.reduce((a,b)=>a+b,0);
+      probs = ex.map(e => e / z);
+    }
+
+    // sort descending
+    const items = CANDIDATES.map((c,i) => ({tok:c[0], prob:probs[i]}))
+                            .sort((a,b) => b.prob - a.prob);
+
+    // top-k, then top-p (nucleus: keep while cumulative-before < p)
+    let cum = 0, kept = 0, cutRank = null;
+    items.forEach((it, idx) => {
+      const rank = idx + 1;
+      const passK = rank <= k;
+      const passP = cum < p - 1e-12;
+      it.cum = cum + it.prob;
+      it.keep = passK && passP && it.prob > 0;
+      it.rank = rank;
+      cum += it.prob;
+      if (it.keep) kept++;
+      else if (cutRank === null) cutRank = rank;
+    });
+
+    // renormalise survivors
+    const zk = items.filter(i=>i.keep).reduce((a,b)=>a+b.prob,0) || 1;
+    items.forEach(it => it.final = it.keep ? it.prob / zk : 0);
+
+    return {items, kept, cutRank, T, k, p};
+  }
+
+  function fmt(x){ return x >= 0.9995 ? "100%" : x < 0.0005 ? "<0.1%" : (x*100).toFixed(1) + "%"; }
+
+  function render(){
+    const {items, kept, cutRank, T, k, p} = compute();
+    $("tempOut").textContent = T.toFixed(2);
+    $("topkOut").textContent = k === N ? "All" : String(k);
+    $("toppOut").textContent = p.toFixed(2);
+    $("statKeep").textContent = kept;
+    $("statTop").textContent = items[0].tok;
+
+    const maxProb = items[0].prob || 1;
+    rowsEl.innerHTML = "";
+    items.forEach(it => {
+      if (cutRank !== null && it.rank === cutRank){
+        const line = document.createElement("div");
+        line.className = "cutline";
+        const why = (it.rank > k && it.cum - it.prob >= p - 1e-12) ? "top-k & top-p cut here"
+                  : it.rank > k ? "top-k cuts here" : "top-p cuts here";
+        line.setAttribute("data-label", why);
+        rowsEl.appendChild(line);
+      }
+      const row = document.createElement("div");
+      row.className = "row" + (it.keep ? "" : " cut") + (picked === it.tok && it.keep ? " picked" : "");
+      row.setAttribute("role","listitem");
+      row.innerHTML = `
+        <span class="rank">${it.rank}</span>
+        <span class="tok">${it.tok}</span>
+        <div class="track"><div class="bar" style="width:${(it.prob/maxProb*100).toFixed(2)}%"></div></div>
+        <span class="num" title="${it.keep ? "chance of being sampled, after renormalising the eligible words" : "removed by top-k or top-p"}">${it.keep ? fmt(it.final) : "0%"}</span>
+        <span class="cum" title="cumulative probability down to this word">${fmt(it.cum)}</span>`;
+      rowsEl.appendChild(row);
+    });
+
+    if (picked && !items.find(i => i.tok === picked && i.keep)) { picked = null; }
+    slotEl.textContent = picked ?? "…";
+    slotEl.classList.toggle("picked", !!picked);
+  }
+
+  function sample(){
+    const {items} = compute();
+    let r = Math.random(), acc = 0;
+    for (const it of items){
+      acc += it.final;
+      if (r <= acc){ picked = it.tok; break; }
+    }
+    if (!picked) picked = items.find(i=>i.keep).tok;
+    render();
+  }
+
+  [tempEl, kEl, pEl].forEach(el => el.addEventListener("input", () => { picked = null; render(); }));
+  $("sample").addEventListener("click", sample);
+  $("explain").addEventListener("click", e => {
+    const aside = e.currentTarget.closest("aside");
+    const on = aside.classList.toggle("explain");
+    e.currentTarget.setAttribute("aria-expanded", on);
+    e.currentTarget.textContent = on ? "Hide explanations" : "What do these do?";
+  });
+  $("reset").addEventListener("click", () => {
+    tempEl.value = 1; kEl.value = N; pEl.value = 1; picked = null; render();
+  });
+  render();
+})();
+</script>
+</body>
+</html>
